@@ -8,7 +8,13 @@ def get_chat_model() -> ChatOllama:
         base_url=settings.ollama_base_url,
         temperature=0,
     )
-
+def get_structured_chat_model() -> ChatOllama:
+    return ChatOllama(
+        model=settings.ollama_chat_model,
+        base_url=settings.ollama_base_url,
+        temperature=0,
+        format="json",
+    )
 
 def get_embedding_model() -> OllamaEmbeddings:
     return OllamaEmbeddings(

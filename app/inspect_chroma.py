@@ -1,7 +1,7 @@
 import chromadb
 
 client = chromadb.PersistentClient(path="./rag_store")
-collection = client.get_collection("langchain")  # change if your collection name is different
+collection = client.get_collection("langchain")
 
 results = collection.get(
     limit=3,
