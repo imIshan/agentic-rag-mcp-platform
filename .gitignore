@@ -9,7 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-
 rag_store/
 .env
 .DS_Store
+
+.vscode

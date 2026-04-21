@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.prompts import ChatPromptTemplate
 import json
-
+from app.graph import rag_graph
 from app.llm import get_chat_model, get_structured_chat_model
 from app.retrieval import retrieve_context, format_context
 from app.schemas import AskRequest, AskResponse, QueryPlan
@@ -130,3 +130,16 @@ def ask_stream(payload: AskRequest):
                 yield chunk.content
 
     return StreamingResponse(generate(), media_type="text/plain")
+
+@app.post("/ask-rag-graph", response_model=AskResponse)
+def ask_question(payload: AskRequest):
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    result = rag_graph.invoke({"question": question})
+
+    return AskResponse(
+        answer=result.get("answer", "No answer generated."),
+        sources=result.get("sources", []),
+    )
