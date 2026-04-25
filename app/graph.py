@@ -1,12 +1,11 @@
+import json
 from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.llm import get_chat_model, get_structured_chat_model
-from app.retrieval import retrieve_context, format_context
-
-import json
+from app.retrieval import retrieve_context, format_context, list_available_sources
 
 
 class RAGState(TypedDict, total=False):
@@ -26,9 +25,14 @@ def plan_node(state: RAGState) -> RAGState:
         You are a query planner for a RAG system.
 
         Classify the user question and return JSON with exactly these keys:
-        - question_type: one of ["incident", "api_docs", "architecture", "general"]
+        - question_type: one of ["incident", "api_docs", "architecture", "general", "tool"]
         - should_retrieve: boolean
         - reason: short string
+
+        Rules:
+        - If the user is asking what documents, files, or sources are available, use question_type="tool" and should_retrieve=false.
+        - If the user is asking about document content, use should_retrieve=true.
+        - If the user is asking a general question not requiring documents, use question_type="general" and should_retrieve=false.
 
         User question:
         {question}
@@ -37,7 +41,6 @@ def plan_node(state: RAGState) -> RAGState:
 
     chain = prompt | get_structured_chat_model()
     result = chain.invoke({"question": state["question"]})
-
     data = json.loads(result.content)
 
     return {
@@ -95,7 +98,7 @@ def answer_node(state: RAGState) -> RAGState:
     )
 
     return {
-        "answer": result.content
+        "answer": result.content,
     }
 
 
@@ -103,6 +106,7 @@ def direct_answer_node(state: RAGState) -> RAGState:
     prompt = ChatPromptTemplate.from_template(
         """
         Answer the user's question directly.
+
         Question:
         {question}
         """
@@ -117,7 +121,26 @@ def direct_answer_node(state: RAGState) -> RAGState:
     }
 
 
+def tool_answer_node(state: RAGState) -> RAGState:
+    sources = list_available_sources()
+
+    if not sources:
+        return {
+            "answer": "No indexed sources are currently available.",
+            "sources": [],
+        }
+
+    source_lines = "\n".join(f"- {source}" for source in sources)
+
+    return {
+        "answer": f"The available indexed sources are:\n{source_lines}",
+        "sources": [{"source": source, "page": None} for source in sources],
+    }
+
+
 def route_after_plan(state: RAGState) -> str:
+    if state.get("question_type") == "tool":
+        return "tool_answer"
     if state.get("should_retrieve"):
         return "retrieve"
     return "direct_answer"
@@ -130,6 +153,7 @@ def build_graph():
     graph_builder.add_node("retrieve", retrieve_node)
     graph_builder.add_node("answer", answer_node)
     graph_builder.add_node("direct_answer", direct_answer_node)
+    graph_builder.add_node("tool_answer", tool_answer_node)
 
     graph_builder.add_edge(START, "plan")
     graph_builder.add_conditional_edges(
@@ -138,11 +162,13 @@ def build_graph():
         {
             "retrieve": "retrieve",
             "direct_answer": "direct_answer",
+            "tool_answer": "tool_answer",
         },
     )
     graph_builder.add_edge("retrieve", "answer")
     graph_builder.add_edge("answer", END)
     graph_builder.add_edge("direct_answer", END)
+    graph_builder.add_edge("tool_answer", END)
 
     return graph_builder.compile()
 
